@@ -126,7 +126,7 @@ def classify_epoch(feature: EpochFeatures, cfg: Config) -> SleepStage:
     }
     return max(scores, key=scores.get)
 
-def extract_features_per_epoch(df: pd.DataFrame, cfg: Config):
+def extract_features_per_epoch(df: pd.DataFrame, cfg: Config) -> Tuple[List[EpochFeatures], dict]:
     seconds_per_epoc = int(round(cfg.epoch_sec * cfg.fs))
     eeg = to_epoch(df["eeg"].to_numpy(dtype=float), seconds_per_epoc)
     emg = to_epoch(df["emg"].to_numpy(dtype=float), seconds_per_epoc)
@@ -168,13 +168,24 @@ def extract_features_per_epoch(df: pd.DataFrame, cfg: Config):
     delta_z = zscore(np.log10(delta_arr))      # powers → log then z
     emg_z = zscore(np.log10(emg_arr))          # EMG RMS → log then z
 
+    max_streaks = {SleepStage.REM: 0, SleepStage.NREM: 0, SleepStage.AWAKE: 0}
+
+    current_streak = 0 
+    previous_stage = feats[0]
     for i, f in enumerate(feats):
         f.td_ratio_z = float(td_z[i])
         f.delta_z = float(delta_z[i])
         f.emg_z = float(emg_z[i])
         f.stage = classify_epoch(f, cfg)
 
-    return feats
+        if f.stage == previous_stage.stage:
+            current_streak += 1
+            if current_streak > max_streaks[f.stage]:
+                max_streaks[f.stage] = current_streak
+        else:
+            current_streak = 1
+
+    return feats, max_streaks
 
 
 def plot_hypnogram(feats: List[EpochFeatures], out_png: Path) -> None:
@@ -217,7 +228,7 @@ def main():
         z_thr_delta_nrem=args.z_thr_delta_nrem,
     )
 
-    feats = extract_features_per_epoch(df, cfg)
+    feats, streaks = extract_features_per_epoch(df, cfg)
 
     out_prefix = Path(args.out_prefix)
     plot_hypnogram(feats, out_prefix.with_suffix(".hypnogram.png"))
