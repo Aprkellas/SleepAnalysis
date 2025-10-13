@@ -3,15 +3,15 @@
   "configurations": [
     {
       "name": "Debug Sleep Analysis",
-      "type": "python",
+      "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/main.py",
       "args": [
-        "--input", "sleep_data.asc",
+        "--input", "sleep_data.edf",
         "--delimiter", "whitespace",
         "--has-header",
-        "--eeg-col", "EEG_Hz",
-        "--emg-col", "EMG_mV",
+        "--eeg-col", "EEG_dominant_fre",
+        "--emg-col", "EMG",
         "--fs", "1.0",
         "--epoch-sec", "2",
         "--out-prefix", "results/test_run"

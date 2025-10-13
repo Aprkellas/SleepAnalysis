@@ -7,6 +7,7 @@ import argparse
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import pyedflib
 
 class SleepStage(Enum):
     AWAKE = 0
@@ -87,6 +88,52 @@ def load_ascii(
 
     out = pd.DataFrame({"eeg": eeg, "emg": emg})
     return out
+
+def load_edf(args) -> pd.DataFrame:
+    """
+    Load EEG/EMG data from an EDF or EDF+ file into a pandas DataFrame
+    with columns 'eeg' and 'emg'.
+
+    Expected EDF channel labels: something like 'EEG', 'EEG_dominant_freq', 'EMG', etc.
+    """
+
+    path = args.input
+    f = pyedflib.EdfReader(path)
+
+    # --- Read metadata
+    n_signals = f.signals_in_file
+    labels = f.getSignalLabels()
+    sfreqs = [f.getSampleFrequency(i) for i in range(n_signals)]
+
+    # --- Choose channels
+    # Allow explicit user selection or try to auto-match
+    eeg_label = args.eeg_col or next((lbl for lbl in labels if "EEG" in lbl.upper()), labels[0])
+    emg_label = args.emg_col or next((lbl for lbl in labels if "EMG" in lbl.upper()), labels[-1])
+
+    eeg_idx = labels.index(eeg_label)
+    emg_idx = labels.index(emg_label)
+
+    eeg = f.readSignal(eeg_idx)
+    emg = f.readSignal(emg_idx)
+
+    f.close()
+
+    # --- Determine sampling rate (can differ per channel)
+    fs_eeg = sfreqs[eeg_idx]
+    fs_emg = sfreqs[emg_idx]
+    fs = float(np.mean([fs_eeg, fs_emg]))  # approximate common fs
+
+    # --- Create time vector
+    n_samples = min(len(eeg), len(emg))
+    t = np.arange(n_samples) / fs
+
+    df = pd.DataFrame({
+        "time": t,
+        "eeg": eeg[:n_samples],
+        "emg": emg[:n_samples],
+    })
+
+    return df
 
 def to_epoch(x: np.ndarray, epoch_len: int) -> np.ndarray:
     """
@@ -171,21 +218,33 @@ def extract_features_per_epoch(df: pd.DataFrame, cfg: Config) -> Tuple[List[Epoc
     max_streaks = {SleepStage.REM: 0, SleepStage.NREM: 0, SleepStage.AWAKE: 0}
 
     current_streak = 0 
-    previous_stage = feats[0]
+    previous_stage = None
+
     for i, f in enumerate(feats):
         f.td_ratio_z = float(td_z[i])
         f.delta_z = float(delta_z[i])
         f.emg_z = float(emg_z[i])
         f.stage = classify_epoch(f, cfg)
 
-        if f.stage == previous_stage.stage:
+        if f.stage == previous_stage:
             current_streak += 1
-            if current_streak > max_streaks[f.stage]:
-                max_streaks[f.stage] = current_streak
         else:
+            # close the previous run
+            if previous_stage is not None:
+                max_streaks[previous_stage] = max(max_streaks[previous_stage], current_streak)
+            # start a new run
+            previous_stage = f.stage
             current_streak = 1
 
-    return feats, max_streaks
+        # keep max for the current stage up to date
+        if current_streak > max_streaks[f.stage]:
+            max_streaks[f.stage] = current_streak
+
+    # finalize the last run
+    if previous_stage is not None:
+        max_streaks[previous_stage] = max(max_streaks[previous_stage], current_streak)
+
+    return feats, dict(max_streaks)
 
 
 def plot_hypnogram(feats: List[EpochFeatures], out_png: Path) -> None:
@@ -218,7 +277,8 @@ def plot_feature(feats: List[EpochFeatures], attr: str, ylabel: str, title: str,
 def main():
     args = parse_args()
 
-    df = load_ascii(args)
+    # df = load_ascii(args)
+    df = load_edf(args)
 
     cfg = Config(
         fs=args.fs,
@@ -235,9 +295,10 @@ def main():
     plot_feature(feats, "td_ratio_z", "Z-scored", "Theta/Delta (z)", out_prefix.with_suffix(".td_z.png"))
     plot_feature(feats, "delta_z", "Z-scored", "Delta Power (z)", out_prefix.with_suffix(".delta_z.png"))
     plot_feature(feats, "emg_z", "Z-scored", "EMG RMS (z)", out_prefix.with_suffix(".emg_z.png"))
-
-
-
+    
+    print("Max AWAKE streak: " + streaks[SleepStage.AWAKE])
+    print("Max NREM streak: " + streaks[SleepStage.NREM])
+    print("Max REM streak: " + streaks[SleepStage.REM])
 
 if __name__ == "__main__":
     main()
