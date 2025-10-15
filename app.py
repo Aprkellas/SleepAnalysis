@@ -28,7 +28,7 @@ def api_analyze():
         return jsonify({"error": "No file selected"}), 400
     if not allowed_file(edf.filename):
         return jsonify({"error": "Unsupported file type"}), 400
-    print("extractin args...")
+
     fs_override = request.form.get("fs", type=float)
     epoch_sec = request.form.get("epoch_sec", type=float, default=10.0)
     z_thr_emg_awake = request.form.get("z_thr_emg_awake", type=float, default=0.5)
@@ -37,15 +37,12 @@ def api_analyze():
     eeg_label = request.form.get("eeg_label") or None
     emg_label = request.form.get("emg_label") or None
 
-    print("saving temp file...")
     # ---- Windows-safe temp file path (CLOSE handle before saving) ----
     fd, temp_path = tempfile.mkstemp(suffix=".edf")
     os.close(fd)  # release the lock so FileStorage can write to it
     
     try:
-        edf.save(temp_path)  # now it can write
-        print("analysis statring...")
-        
+        edf.save(temp_path) 
         result = run_analysis(
             edf_path=temp_path,
             fs_override=fs_override,
