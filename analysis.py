@@ -2,12 +2,14 @@ from typing import Tuple, Optional, List
 from pathlib import Path
 from dataclasses import dataclass
 from enum import Enum
+from io import BytesIO
 
 import argparse
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import pyedflib
+import base64
 
 class SleepStage(Enum):
     AWAKE = 0
@@ -69,14 +71,10 @@ def run_analysis(
     img_delta  = out_dir / "delta_z.png"
     img_emg    = out_dir / "emg_z.png"
 
-    plot_hypnogram(feats, img_hypno)
-    plot_feature(feats, "td_ratio_z", "Z-scored", "Theta/Delta (z)", img_td)
-    plot_feature(feats, "delta_z", "Z-scored", "Delta Power (z)", img_delta)
-    plot_feature(feats, "emg_z", "Z-scored", "EMG RMS (z)", img_emg)
-
-    # Optionally write features to CSV for download
-    csv_path = out_dir / "epoch_features.csv"
-    pd.DataFrame([f.__dict__ for f in feats]).to_csv(csv_path, index=False)
+    img_hypno  = plot_hypnogram(feats, img_hypno)
+    img_td     = plot_feature_dataurl(feats, "td_ratio_z", "Z-scored", "Theta/Delta (z)")
+    img_delta  = plot_feature_dataurl(feats, "delta_z", "Z-scored", "Delta Power (z)")
+    img_emg    = plot_feature_dataurl(feats, "emg_z", "Z-scored", "EMG RMS (z)")
 
     return {
         "fs_used": fs,
@@ -87,30 +85,14 @@ def run_analysis(
             "delta_z": str(img_delta.name),
             "emg_z": str(img_emg.name),
         },
-        "csv": str(csv_path.name),
     }
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ASCII EEG/EMG sleep analysis")
-    p.add_argument("--input", type=str, required=True, help="Path to ASCII file")
-    p.add_argument("--delimiter", type=str, default="whitespace", help="Delimiter: 'whitespace' or a literal like ',' or '\\t'")
-    hdr = p.add_mutually_exclusive_group(required=False)
-    hdr.add_argument("--has-header", action="store_true", help="File has a header row (default if omitted)")
-    hdr.add_argument("--no-header", action="store_true", help="File has no header row")
-    p.add_argument("--eeg-col", type=str, help="EEG column name (when --has-header)")
-    p.add_argument("--emg-col", type=str, help="EMG column name (when --has-header)")
-    p.add_argument("--eeg-col-idx", type=int, help="EEG column index (0-based, when --no-header)")
-    p.add_argument("--emg-col-idx", type=int, help="EMG column index (0-based, when --no-header)")
-    p.add_argument("--fs", type=float, required=True, help="Sampling rate in Hz")
-    p.add_argument("--epoch-sec", type=float, default=10.0, help="Epoch length in seconds")
-    p.add_argument("--out-prefix", type=str, default="results/run", help="Prefix for outputs (CSV/PNGs)")
-    
-    # thresholds
-    p.add_argument("--z-thr-emg-awake", type=float, default=0.5, help="Z threshold for EMG to call AWAKE")
-    p.add_argument("--z-thr-td-rem", type=float, default=0.5, help="Z threshold for theta/delta ratio to call REM")
-    p.add_argument("--z-thr-delta-nrem", type=float, default=0.5, help="Z threshold for delta power to call NREM")
-    return p.parse_args()
-
+def fig_to_data_url(fig) -> str:
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 def load_ascii(
     args
@@ -298,10 +280,10 @@ def extract_features_per_epoch(df: pd.DataFrame, cfg: Config) -> Tuple[List[Epoc
     return feats, dict(max_streaks)
 
 
-def plot_hypnogram(feats: List[EpochFeatures], out_png: Path) -> None:
+def plot_hypnogram(feats: List[EpochFeatures], out_png: Path) -> str:
     t = [f.start_time for f in feats]
     y = [f.stage.value for f in feats]  # 0,1,2
-    plt.figure(figsize=(10, 3))
+    fig = plt.figure(figsize=(10, 3))
     plt.step(t, y, where="post")
     plt.yticks([0,1,2], ["AWAKE","NREM","REM"])
     plt.xlabel("Time (s)")
@@ -311,17 +293,16 @@ def plot_hypnogram(feats: List[EpochFeatures], out_png: Path) -> None:
     out_png.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_png, dpi=150)
     plt.close()
+    return fig_to_data_url(fig)
 
-def plot_feature(feats: List[EpochFeatures], attr: str, ylabel: str, title: str, out_png: Path) -> None:
+def plot_feature_dataurl(feats: List[EpochFeatures], attr: str, ylabel: str, title: str) -> str:
     t = [f.start_time for f in feats]
     v = [getattr(f, attr) for f in feats]
-    plt.figure(figsize=(10, 3))
+    fig = plt.figure(figsize=(10, 3))
     plt.plot(t, v)
     plt.xlabel("Time (s)")
     plt.ylabel(ylabel)
     plt.title(title)
     plt.tight_layout()
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(out_png, dpi=150)
-    plt.close()
+    return fig_to_data_url(fig)
     
