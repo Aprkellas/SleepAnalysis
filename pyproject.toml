@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q --strict-markers --disable-warnings"
+testpaths = ["tests"]
+markers = [
+  "slow: tests that take longer (e.g., full-run plots)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/yourpkg"]
