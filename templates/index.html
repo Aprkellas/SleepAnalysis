@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Sleep Analysis</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body { max-width: 900px; margin: 2rem auto; font-family: system-ui, sans-serif; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .images { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    img { width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px; }
+    .card { padding: 1rem; border: 1px solid #ddd; border-radius: 8px; }
+    .muted { color: #666; font-size: 0.9rem; }
+    button { padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    #spinner { display:none; }
+  </style>
+</head>
+<body>
+  <h1>Sleep Analysis (EDF → Hypnogram)</h1>
+
+  <form id="analyzeForm" class="card">
+    <div class="row">
+      <div>
+        <label>EDF file</label><br/>
+        <input type="file" name="edf" accept=".edf" required />
+        <div class="muted">Upload your EDF/EDF+ recording.</div>
+      </div>
+      <div>
+        <label>Epoch length (sec)</label><br/>
+        <input type="number" step="0.1" name="epoch_sec" value="10" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1rem;">
+      <div>
+        <label>Sampling rate override (Hz)</label><br/>
+        <input type="number" step="1" name="fs" placeholder="Leave blank to use EDF fs" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1rem;">
+      <div class="grid-3">
+        <div>
+          <label>Z thr EMG→AWAKE</label><br/>
+          <input type="number" step="0.1" name="z_thr_emg_awake" value="0.5" />
+        </div>
+        <div>
+          <label>Z thr TD→REM</label><br/>
+          <input type="number" step="0.1" name="z_thr_td_rem" value="0.5" />
+        </div>
+        <div>
+          <label>Z thr Δ→NREM</label><br/>
+          <input type="number" step="0.1" name="z_thr_delta_nrem" value="0.5" />
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top: 1rem;">
+      <button type="submit">Analyze</button>
+      <span id="spinner" class="muted">Running analysis…</span>
+    </div>
+  </form>
+
+  <div id="results" style="margin-top: 1.5rem; display:none;">
+    <div class="card">
+      <h2>Results</h2>
+      <div id="meta" class="muted"></div>
+      <div id="streaks"></div>
+      <div class="images" style="margin-top: 1rem;">
+        <img id="img_hypno" alt="Hypnogram"/>
+        <img id="img_td" alt="Theta/Delta (z)"/>
+        <img id="img_delta" alt="Delta (z)"/>
+        <img id="img_emg" alt="EMG (z)"/>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("analyzeForm");
+    const spinner = document.getElementById("spinner");
+    const results = document.getElementById("results");
+    const meta = document.getElementById("meta");
+    const streaksEl = document.getElementById("streaks");
+    const imgHyp = document.getElementById("img_hypno");
+    const imgTD  = document.getElementById("img_td");
+    const imgDel = document.getElementById("img_delta");
+    const imgEmg = document.getElementById("img_emg");
+    const csvLink = document.getElementById("csv_link");
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      spinner.style.display = "inline";
+      results.style.display = "none";
+
+      const fd = new FormData(form);
+      try {
+        const res = await fetch("/api/analyze", { method: "POST", body: fd });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert("Error: " + (err.error || res.statusText));
+          spinner.style.display = "none";
+          return;
+        }
+        const data = await res.json();
+
+        meta.textContent = `Run: ${data.run_id} • fs_used: ${data.fs_used.toFixed ? data.fs_used.toFixed(1) : data.fs_used} Hz`;
+        streaksEl.textContent = `Max streaks — AWAKE: ${data.streaks.AWAKE}, NREM: ${data.streaks.NREM}, REM: ${data.streaks.REM}`;
+
+        imgHyp.src = data.images.hypnogram;
+        imgTD.src  = data.images.td_z;
+        imgDel.src = data.images.delta_z;
+        imgEmg.src = data.images.emg_z;
+
+        results.style.display = "block";
+      } catch (ex) {
+        alert("Request failed: " + ex);
+      } finally {
+        spinner.style.display = "none";
+      }
+    });
+  </script>
+</body>
+</html>
