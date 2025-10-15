@@ -81,9 +81,6 @@
         <img id="img_delta" alt="Delta (z)"/>
         <img id="img_emg" alt="EMG (z)"/>
       </div>
-      <p style="margin-top: 1rem;">
-        <a id="csv_link" href="#" download>Download epoch features (CSV)</a>
-      </p>
     </div>
   </div>
 
@@ -118,10 +115,10 @@
         meta.textContent = `Run: ${data.run_id} • fs_used: ${data.fs_used.toFixed ? data.fs_used.toFixed(1) : data.fs_used} Hz`;
         streaksEl.textContent = `Max streaks — AWAKE: ${data.streaks.AWAKE}, NREM: ${data.streaks.NREM}, REM: ${data.streaks.REM}`;
 
-        imgHyp.src = data.images.hypnogram + `?t=${Date.now()}`;
-        imgTD.src  = data.images.td_z      + `?t=${Date.now()}`;
-        imgDel.src = data.images.delta_z   + `?t=${Date.now()}`;
-        imgEmg.src = data.images.emg_z     + `?t=${Date.now()}`;
+        imgHyp.src = data.images.hypnogram;
+        imgTD.src  = data.images.td_z;
+        imgDel.src = data.images.delta_z;
+        imgEmg.src = data.images.emg_z;
 
         results.style.display = "block";
       } catch (ex) {

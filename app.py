@@ -1,9 +1,8 @@
 # app.py
 from __future__ import annotations
-from tempfile import NamedTemporaryFile
+import tempfile
+import os
 from flask import Flask, render_template, request, jsonify
-from werkzeug.utils import secure_filename
-
 from analysis import run_analysis
 
 app = Flask(__name__)
@@ -29,8 +28,8 @@ def api_analyze():
         return jsonify({"error": "No file selected"}), 400
     if not allowed_file(edf.filename):
         return jsonify({"error": "Unsupported file type"}), 400
-
-    fs_override = request.form.get("fs", type=float)  # None or float
+    print("extractin args...")
+    fs_override = request.form.get("fs", type=float)
     epoch_sec = request.form.get("epoch_sec", type=float, default=10.0)
     z_thr_emg_awake = request.form.get("z_thr_emg_awake", type=float, default=0.5)
     z_thr_td_rem = request.form.get("z_thr_td_rem", type=float, default=0.5)
@@ -38,23 +37,32 @@ def api_analyze():
     eeg_label = request.form.get("eeg_label") or None
     emg_label = request.form.get("emg_label") or None
 
-    # pyEDFlib needs a real path, so use a temp file that auto-deletes
-    safe_name = secure_filename(edf.filename)
-    with NamedTemporaryFile(suffix=".edf") as tmp:
-        edf.save(tmp.name)
+    print("saving temp file...")
+    # ---- Windows-safe temp file path (CLOSE handle before saving) ----
+    fd, temp_path = tempfile.mkstemp(suffix=".edf")
+    os.close(fd)  # release the lock so FileStorage can write to it
+    
+    try:
+        edf.save(temp_path)  # now it can write
+        print("analysis statring...")
+        
+        result = run_analysis(
+            edf_path=temp_path,
+            fs_override=fs_override,
+            epoch_sec=epoch_sec,
+            z_thr_emg_awake=z_thr_emg_awake,
+            z_thr_td_rem=z_thr_td_rem,
+            z_thr_delta_nrem=z_thr_delta_nrem,
+            eeg_label=eeg_label,
+            emg_label=emg_label,
+        )
+    except Exception as ex:
+        return jsonify({"error": f"Analysis failed: {ex}"}), 500
+    finally:
         try:
-            result = run_analysis(
-                edf_path=tmp.name,
-                fs_override=fs_override,
-                epoch_sec=epoch_sec,
-                z_thr_emg_awake=z_thr_emg_awake,
-                z_thr_td_rem=z_thr_td_rem,
-                z_thr_delta_nrem=z_thr_delta_nrem,
-                eeg_label=eeg_label,
-                emg_label=emg_label,
-            )
-        except Exception as ex:
-            return jsonify({"error": f"Analysis failed: {ex}"}), 500
+            os.remove(temp_path)  # clean up the temp file
+        except OSError:
+            pass
 
     return jsonify(result), 200
 
